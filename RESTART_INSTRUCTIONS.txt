@@ -1,0 +1,24 @@
+IMPORTANT: The JAR has been rebuilt with the correct protobuf version!
+
+To fix the "Missing dependency" error:
+
+1. CLOSE the application completely (all windows)
+2. Make sure no Java processes are running (check Task Manager)
+3. Run the app again:
+   - Double-click run.bat
+   - OR: java -jar KickChatOverlay.jar
+
+The new JAR (built at 2:31:13) includes:
+✓ protobuf-java 3.25.1
+✓ MapFieldReflectionAccessor class
+✓ All TikTok dependencies
+
+If you're still seeing the error after restarting:
+- Check the console output for the actual error message
+- The error might be a different dependency issue
+
+
+
+
+
+

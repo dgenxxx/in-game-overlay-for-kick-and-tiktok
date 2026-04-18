@@ -1,0 +1,78 @@
+╔════════════════════════════════════════════════════════════════╗
+║           TIKTOK CONNECTION - QUICK FIX GUIDE                  ║
+╚════════════════════════════════════════════════════════════════╝
+
+✅ WHAT WAS FIXED:
+   • API compatibility (getName() fallback)
+   • Enhanced error handling
+   • Detailed console logging
+   • Better error messages
+
+📋 BEFORE YOU START:
+   1. Run: diagnose_tiktok.bat
+   2. Make sure TikTok user is LIVE (critical!)
+   3. Have console window visible
+
+🚀 HOW TO TEST:
+   1. Double-click: run_debug.bat
+   2. Enter TikTok username (no @ symbol)
+   3. Click Connect
+   4. Watch console for messages
+
+✅ SUCCESS LOOKS LIKE:
+   ========================================
+   TikTokClient: Successfully connected to @username
+   ========================================
+   
+   Then when chat happens:
+   TikTokClient: Comment from User: Hello!
+
+❌ COMMON ERRORS:
+
+   "User is not currently LIVE"
+   → User must be streaming RIGHT NOW
+   → Try a different user who is LIVE
+
+   "TikTok library not installed"
+   → Run setup_tiktok.bat
+   → Check lib/ folder for JAR files
+
+   "Connection hangs"
+   → Check internet connection
+   → Try different network
+   → TikTok may be blocking your IP
+
+   "User not found"
+   → Check username spelling
+   → Remove @ symbol
+   → Verify user exists
+
+🔍 DEBUGGING:
+   • Console shows step-by-step connection process
+   • All errors have detailed messages
+   • Stack traces help identify issues
+   • System messages appear in overlay
+
+📁 HELPFUL FILES:
+   • run_debug.bat - Shows real-time logs
+   • diagnose_tiktok.bat - Checks setup
+   • TIKTOK_TROUBLESHOOTING.md - Full guide
+   • TIKTOK_FIX_SUMMARY.md - Technical details
+
+⚠️ CRITICAL REQUIREMENTS:
+   ✓ TikTok user MUST be LIVE
+   ✓ Java 8 or higher
+   ✓ All library files in lib/
+   ✓ Internet connection
+   ✓ TikTok API accessible
+
+💡 PRO TIPS:
+   • Test with popular streamer first
+   • Keep console window open
+   • Read error messages carefully
+   • Check if user is actually LIVE
+   • Try during peak streaming hours
+
+═══════════════════════════════════════════════════════════════
+
+Still not working? Check TIKTOK_TROUBLESHOOTING.md for detailed help!
