@@ -12,7 +12,7 @@ echo KEEP THIS WINDOW OPEN to see logs!
 echo.
 echo ========================================
 echo.
-java -jar KickChatOverlay.jar
+java -cp "KickChatOverlay.jar;lib/*" KickChatOverlay
 echo.
 echo ========================================
 echo Application closed

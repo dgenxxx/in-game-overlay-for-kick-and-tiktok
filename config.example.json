@@ -1,0 +1,9 @@
+{
+  "extra_junk_patterns": [
+    "*.cache",
+    "coverage/"
+  ],
+  "extra_never_delete_patterns": [
+    "my-special-config.json"
+  ]
+}

@@ -1,0 +1,13 @@
+# Added by repo_agent.py
+.DS_Store
+Thumbs.db
+.repo_agent_backup/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.env

@@ -29,6 +29,8 @@ class OverlayWindow extends JFrame {
     private javax.swing.Timer fadeTimer;
     private ConfigManager config;
     private boolean locked = false;
+    private boolean borderVisible = true;
+    private boolean autoHideWhenEmpty = false;
     
     // Viewer tracking with timestamps
     private ConcurrentHashMap<String, Long> kickViewers = new ConcurrentHashMap<>();
@@ -322,6 +324,18 @@ class OverlayWindow extends JFrame {
         toggleClickThrough(locked);
     }
     
+    public void setBorderVisible(boolean visible) {
+        // Keep border always visible (or controlled independently if needed), 
+        // but toggle auto-hide functionality for the window itself.
+        this.autoHideWhenEmpty = !visible;
+        if (autoHideWhenEmpty) {
+            setVisible(activeMessagePanels.isEmpty() ? false : true);
+        } else {
+            setVisible(true);
+        }
+        repaint();
+    }
+    
     private void toggleClickThrough(final boolean enable) {
         new Thread(new Runnable() {
             public void run() {
@@ -366,6 +380,11 @@ class OverlayWindow extends JFrame {
         System.out.println("OverlayWindow: Total messages before add: " + messages.size());
         
         messages.add(msg);
+        
+        if (autoHideWhenEmpty && !isVisible()) {
+            setVisible(true);
+        }
+
         if (messages.size() > 20) {
             // Keep only the latest 20 messages
             System.out.println("OverlayWindow: Message limit reached (" + messages.size() + "), keeping only latest 20");
@@ -568,6 +587,9 @@ class OverlayWindow extends JFrame {
         if (changed) {
             messagePanel.revalidate();
             messagePanel.repaint();
+            if (autoHideWhenEmpty && activeMessagePanels.isEmpty()) {
+                setVisible(false);
+            }
         }
     }
     
@@ -827,7 +849,7 @@ class OverlayWindow extends JFrame {
             g2d.setColor(new Color(30, 30, 30));
             g2d.fill(headerPath);
             
-            // Draw Green Border/Glow
+            // Always draw Green Border/Glow and "CHAT" text
             g2d.setColor(Color.GREEN);
             g2d.setStroke(new BasicStroke(2f));
             

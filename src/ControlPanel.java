@@ -22,10 +22,11 @@ class ControlPanel extends JFrame {
     private JSlider opacitySlider;
     private JCheckBox soundCheck;
     private JCheckBox lockCheck;
+    private JCheckBox visibleCheck;
     private OverlayWindow overlay;
     private KickWebSocketClient wsClient;
     private TikTokClient tiktokClient;
-    private JLabel statusLabel;
+    private JLabel statusLabel = new JLabel("Disconnected");
     private ConfigManager config;
     private JSpinner fadeTimeSpinner;
     
@@ -70,6 +71,8 @@ class ControlPanel extends JFrame {
             overlay.setVisible(true);
             overlay.setWindowTransparency(initialTransparency);
             overlay.setFadeTime(initialFadeTime);
+            overlay.setLocked(true);
+            overlay.setBorderVisible(true);
         }
         
         opacitySlider = new JSlider(0, 100, initialTransparency);
@@ -80,8 +83,8 @@ class ControlPanel extends JFrame {
         fadeTimeSpinner = new JSpinner(new SpinnerNumberModel(initialFadeTime, 5, 300, 5));
         
         soundCheck = new JCheckBox("Sound Effects", true);
-        lockCheck = new JCheckBox("Lock Overlay (Click-Through)", false);
-        statusLabel = new JLabel("Not connected");
+        lockCheck = new JCheckBox("Lock Overlay (Click-Through)", true);
+        visibleCheck = new JCheckBox("Visible Window", true);
         
         connectBtn.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
@@ -148,6 +151,14 @@ class ControlPanel extends JFrame {
                 }
             }
         });
+        
+        visibleCheck.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                if (overlay != null) {
+                    overlay.setBorderVisible(visibleCheck.isSelected());
+                }
+            }
+        });
     }
     
     private void layoutComponents() {
@@ -174,7 +185,7 @@ class ControlPanel extends JFrame {
         topPanel.add(tiktokPanel);
         topPanel.add(buttonPanel);
         
-        JPanel centerPanel = new JPanel(new GridLayout(5, 1, 5, 5));
+        JPanel centerPanel = new JPanel(new GridLayout(6, 1, 5, 5));
         centerPanel.setBorder(BorderFactory.createTitledBorder("Settings"));
         
         JPanel opacityPanel = new JPanel(new BorderLayout());
@@ -189,6 +200,7 @@ class ControlPanel extends JFrame {
         centerPanel.add(fadePanel);
         centerPanel.add(soundCheck);
         centerPanel.add(lockCheck);
+        centerPanel.add(visibleCheck);
         
         JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         bottomPanel.add(new JLabel("Status: "));
