@@ -479,6 +479,7 @@ def main():
         print("  `git add -A` will stage those too if you --apply. Commit/stash first to keep them separate.")
 
     total_removals = sum(len(g["remove"]) for g in dup_files) + sum(len(g["remove"]) for g in dup_folders) + len(junk)
+    needs_commit = total_removals > 0 or bool(gi_missing) or args.format or pre_existing_count > 0
 
     if not args.apply:
         print(
@@ -489,85 +490,103 @@ def main():
         print("or --apply --push to also commit and push.")
         return
 
-    if total_removals == 0 and not gi_missing and not args.format:
-        print("\nNothing to change.")
-        return
+    made_commit = False
 
-    if not args.yes:
-        resp = input(
-            f"\nProceed with {total_removals} removal(s) and {len(gi_missing)} .gitignore addition(s)? [y/N] "
-        )
-        if resp.strip().lower() != "y":
-            print("Aborted — no changes made.")
-            return
+    if not needs_commit:
+        print("\nNothing to clean up.")
+    else:
+        if not args.yes:
+            resp = input(
+                f"\nProceed with {total_removals} removal(s), {len(gi_missing)} .gitignore addition(s), "
+                f"and committing {pre_existing_count} other pending change(s)? [y/N] "
+            )
+            if resp.strip().lower() != "y":
+                print("Aborted — no changes made.")
+                return
 
-    # ---- backup, then apply ----
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    backup_root = root / ".repo_agent_backup" / timestamp
+        # ---- backup, then apply ----
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        backup_root = root / ".repo_agent_backup" / timestamp
 
-    remove_files = [r for g in dup_files for r in g["remove"]] + junk
-    remove_folders = [r for g in dup_folders for r in g["remove"]]
+        remove_files = [r for g in dup_files for r in g["remove"]] + junk
+        remove_folders = [r for g in dup_folders for r in g["remove"]]
 
-    if remove_files or remove_folders:
-        backup_paths(root, remove_files, remove_folders, backup_root)
-        print(f"\nBacked up {len(remove_files)} file(s) and {len(remove_folders)} folder(s) to {backup_root}")
+        if remove_files or remove_folders:
+            backup_paths(root, remove_files, remove_folders, backup_root)
+            print(f"\nBacked up {len(remove_files)} file(s) and {len(remove_folders)} folder(s) to {backup_root}")
 
-    for rel in remove_files:
-        p = root / rel
-        if p.exists():
-            p.unlink()
-    for rel in remove_folders:
-        p = root / rel
-        if p.exists():
-            shutil.rmtree(p)
+        for rel in remove_files:
+            p = root / rel
+            if p.exists():
+                p.unlink()
+        for rel in remove_folders:
+            p = root / rel
+            if p.exists():
+                shutil.rmtree(p)
 
-    pruned = prune_empty_dirs(root)
-    if pruned:
-        print(f"Removed {len(pruned)} now-empty local folder(s) (not a git-tracked change).")
+        pruned = prune_empty_dirs(root)
+        if pruned:
+            print(f"Removed {len(pruned)} now-empty local folder(s) (not a git-tracked change).")
 
-    if gi_missing:
-        lines = list(gi_existing)
-        if lines and lines[-1].strip() != "":
-            lines.append("")
-        lines.append("# Added by repo_agent.py")
-        lines += gi_missing
-        gi_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        print(f"Updated {gi_path}")
+        if gi_missing:
+            lines = list(gi_existing)
+            if lines and lines[-1].strip() != "":
+                lines.append("")
+            lines.append("# Added by repo_agent.py")
+            lines += gi_missing
+            gi_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            print(f"Updated {gi_path}")
 
-    if args.format:
-        run_formatters(root, project_types)
+        if args.format:
+            run_formatters(root, project_types)
 
-    # ---- git add / commit / push ----
-    run_git(["add", "-A"], cwd=root)
-    staged = run_git(["diff", "--cached", "--name-only"], cwd=root).stdout.strip()
-    if not staged:
-        print("\nNo staged changes after cleanup — skipping commit.")
-        return
+        # ---- git add / commit ----
+        run_git(["add", "-A"], cwd=root)
+        staged = run_git(["diff", "--cached", "--name-only"], cwd=root).stdout.strip()
+        if not staged:
+            print("\nNo staged changes after cleanup.")
+        else:
+            housekeeping_bits = []
+            if dup_files:
+                housekeeping_bits.append(f"{sum(len(g['remove']) for g in dup_files)} duplicate file(s)")
+            if dup_folders:
+                housekeeping_bits.append(f"{sum(len(g['remove']) for g in dup_folders)} duplicate folder(s)")
+            if junk:
+                housekeeping_bits.append(f"{len(junk)} junk file(s)")
+            if gi_missing:
+                housekeeping_bits.append(f".gitignore +{len(gi_missing)}")
 
-    summary_bits = []
-    if dup_files:
-        summary_bits.append(f"{sum(len(g['remove']) for g in dup_files)} duplicate file(s)")
-    if dup_folders:
-        summary_bits.append(f"{sum(len(g['remove']) for g in dup_folders)} duplicate folder(s)")
-    if junk:
-        summary_bits.append(f"{len(junk)} junk file(s)")
-    if gi_missing:
-        summary_bits.append(f".gitignore +{len(gi_missing)}")
-    message = "chore: repo housekeeping — " + ", ".join(summary_bits) if summary_bits else "chore: repo housekeeping"
+            if housekeeping_bits and pre_existing_count:
+                message = (
+                    "chore: repo housekeeping — "
+                    + ", ".join(housekeeping_bits)
+                    + f"; +{pre_existing_count} other pending change(s)"
+                )
+            elif housekeeping_bits:
+                message = "chore: repo housekeeping — " + ", ".join(housekeeping_bits)
+            elif pre_existing_count:
+                message = f"Sync {pre_existing_count} pending change(s)"
+            else:
+                message = "chore: repo housekeeping"
+            run_git(["commit", "-m", message], cwd=root)
+            made_commit = True
+            print(f"\nCommitted: {message}")
 
-    run_git(["commit", "-m", message], cwd=root)
-    print(f"\nCommitted: {message}")
-
+    # ---- push (independent of whether housekeeping itself made a commit —
+    # there may be earlier local commits, e.g. from TRAE IDE or manual git
+    # use, that were never pushed) ----
     if args.push:
         push_result = run_git(["push"], cwd=root, check=False)
+        combined_output = "\n".join(x for x in (push_result.stdout, push_result.stderr) if x and x.strip())
         if push_result.returncode != 0:
-            print("\nCommit succeeded locally, but push failed:")
-            print(push_result.stderr)
-            print("You may need to run `git push -u origin <branch>` yourself the first time.")
+            print("\nPush failed:")
+            print(combined_output)
+            print("If this is the first push on this branch, try: git push -u origin <branch>")
         else:
-            print("Pushed to remote.")
-    else:
-        print("Committed locally. Re-run with --push (or `git push` yourself) to publish it.")
+            print()
+            print(combined_output if combined_output else "Pushed to remote.")
+    elif made_commit:
+        print("\nCommitted locally. Re-run with --push (or `git push` yourself) to publish it.")
 
 
 if __name__ == "__main__":
