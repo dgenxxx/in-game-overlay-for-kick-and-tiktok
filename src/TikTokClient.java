@@ -19,6 +19,7 @@ public class TikTokClient {
     private LiveClient client;
     private OverlayWindow overlay;
     private String username;
+    private boolean hasConnectedOnce = false;
     private ScheduledExecutorService viewerCountExecutor;
     private ScheduledFuture<?> viewerCountTask;
     
@@ -49,7 +50,11 @@ public class TikTokClient {
                     })
                     .onConnected((liveClient, event) -> {
                         System.out.println("TikTokClient: Successfully connected to @" + username);
-                        addSystemMessage("✓ Connected to TikTok: @" + username);
+                        // Only show the connected message once to avoid spam on auto-reconnects
+                        if (!hasConnectedOnce) {
+                            hasConnectedOnce = true;
+                            addSystemMessage("✓ Connected to TikTok: @" + username);
+                        }
                         
                         // Start polling viewer count every 15 seconds
                         startViewerCountPolling();

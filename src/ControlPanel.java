@@ -7,11 +7,34 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
+import java.util.UUID;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 
 class ControlPanel extends JFrame {
+    private static class KickConnectionInfo {
+        final String channelName;
+        final String chatroomId;
+        final String websocketUrl;
+        final String clientId;
+        final String authToken;
+
+        KickConnectionInfo(String channelName, String chatroomId, String websocketUrl, String clientId,
+                           String authToken) {
+            this.channelName = channelName;
+            this.chatroomId = chatroomId;
+            this.websocketUrl = websocketUrl;
+            this.clientId = clientId;
+            this.authToken = authToken;
+        }
+    }
+
     private JTextField channelField;
     private JTextField tiktokField;
     private JTextField authTokenField;
@@ -32,7 +55,7 @@ class ControlPanel extends JFrame {
     
     public ControlPanel() {
         setTitle("Kick Chat Overlay Control Panel");
-        setSize(500, 400);
+        setSize(700, 500);  // Increased from 600x450 for better readability
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
@@ -55,7 +78,7 @@ class ControlPanel extends JFrame {
         int initialTransparency = config.getInt("transparency", 15);
         int initialFadeTime = config.getInt("fadeTime", 30);
         
-        channelField = new JTextField(15);
+        channelField = new JTextField("6922175", 15);
         tiktokField = new JTextField(15);
         authTokenField = new JTextField(15);
         authTokenField.setToolTipText("Optional: Authentication token for private channels");
@@ -72,7 +95,7 @@ class ControlPanel extends JFrame {
             overlay.setWindowTransparency(initialTransparency);
             overlay.setFadeTime(initialFadeTime);
             overlay.setLocked(true);
-            overlay.setBorderVisible(true);
+            overlay.setWindowVisible(true);
         }
         
         opacitySlider = new JSlider(0, 100, initialTransparency);
@@ -84,7 +107,7 @@ class ControlPanel extends JFrame {
         
         soundCheck = new JCheckBox("Sound Effects", true);
         lockCheck = new JCheckBox("Lock Overlay (Click-Through)", true);
-        visibleCheck = new JCheckBox("Visible Window", true);
+        visibleCheck = new JCheckBox("Visible Window", false);
         
         connectBtn.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
@@ -109,9 +132,6 @@ class ControlPanel extends JFrame {
             public void actionPerformed(ActionEvent e) {
                 if (overlay != null) {
                     overlay.addTestMessage();
-                    if (!overlay.isVisible()) {
-                        overlay.setVisible(true);
-                    }
                 }
             }
         });
@@ -159,6 +179,11 @@ class ControlPanel extends JFrame {
                 }
             }
         });
+        
+        // Apply initial state from checkbox on startup
+        if (overlay != null) {
+            overlay.setBorderVisible(visibleCheck.isSelected());
+        }
     }
     
     private void layoutComponents() {
@@ -168,7 +193,7 @@ class ControlPanel extends JFrame {
         topPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         
         JPanel inputPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        inputPanel.add(new JLabel("Kick Channel/ID:"));
+        inputPanel.add(new JLabel("Kick username or chatroom ID:"));
         inputPanel.add(channelField);
         
         JPanel tiktokPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -214,6 +239,7 @@ class ControlPanel extends JFrame {
     private void connect() {
         String channelInput = channelField.getText().trim();
         String tiktokInput = tiktokField.getText().trim();
+        String authToken = authTokenField.getText().trim();
         
         if (channelInput.isEmpty() && tiktokInput.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Please enter a Kick Channel ID or TikTok Username");
@@ -227,48 +253,38 @@ class ControlPanel extends JFrame {
             statusLabel.setText("Resolving ID...");
             statusLabel.setForeground(Color.ORANGE);
             
-            new SwingWorker<String, Void>() {
+            new SwingWorker<KickConnectionInfo, Void>() {
                 @Override
-                protected String doInBackground() throws Exception {
+                protected KickConnectionInfo doInBackground() throws Exception {
+                    String chatroomId;
                     if (channelInput.matches("\\d+")) {
-                        return channelInput; // Already an ID
+                        chatroomId = channelInput;
+                    } else {
+                        chatroomId = getChatroomId(channelInput);
                     }
-                    return getChatroomId(channelInput);
+                    if (chatroomId == null || !chatroomId.matches("\\d+")) {
+                        throw new IOException("Kick did not return a numeric chatroom ID. Check the channel username or enter its numeric chatroom ID.");
+                    }
+                    String clientId = UUID.randomUUID().toString();
+                    String websocketUrl = getKickWebSocketUrl(chatroomId, clientId, authToken);
+                    return new KickConnectionInfo(channelInput, chatroomId, websocketUrl, clientId, authToken);
                 }
                 
                 @Override
                 protected void done() {
                     try {
-                        String chatroomId = get();
-                        
-                        if (chatroomId == null) {
-                            System.out.println("Could not resolve Chatroom ID. Using username as fallback.");
-                            chatroomId = channelInput;
-                             JOptionPane.showMessageDialog(ControlPanel.this, 
-                                "Could not auto-resolve Chatroom ID (likely due to Cloudflare).\n" +
-                                "Kick messages may not appear.\n\n" +
-                                "Please try entering your numeric Chatroom ID manually.\n" +
-                                "(You can find it in the API response: https://kick.com/api/v2/channels/" + channelInput + ")",
-                                "Warning", JOptionPane.WARNING_MESSAGE);
-                        } else {
-                             System.out.println("Resolved Chatroom ID: " + chatroomId);
-                        }
-    
-                        performConnection(chatroomId);
+                        KickConnectionInfo connectionInfo = get();
+                        System.out.println("Resolved Kick chatroom ID: " + connectionInfo.chatroomId);
+                        performConnection(connectionInfo);
                         
                     } catch (Exception e) {
-                        e.printStackTrace();
-                        // If resolving fails but we have TikTok, try to proceed with just TikTok?
-                        // For now, let's fail gracefully but check if TikTok was intended
+                        Throwable cause = e.getCause() == null ? e : e.getCause();
+                        String detail = cause.getMessage() == null ? cause.toString() : cause.getMessage();
+                        showKickSetupError(channelInput, detail);
                         if (!tiktokInput.isEmpty()) {
-                             // Proceed with empty Kick ID to trigger TikTok-only flow if implemented, 
-                             // but performConnection expects valid Kick ID if it tries to connect.
-                             // Let's modify performConnection to handle empty Kick ID.
-                             performConnection(null);
+                            performConnection(null);
                         } else {
                             connectBtn.setEnabled(true);
-                            statusLabel.setText("Error resolving ID");
-                            statusLabel.setForeground(Color.RED);
                         }
                     }
                 }
@@ -279,18 +295,18 @@ class ControlPanel extends JFrame {
         }
     }
 
-    private void performConnection(String channelId) {
+    private void performConnection(KickConnectionInfo connectionInfo) {
         try {
-            if (!overlay.isVisible()) {
-                overlay.setVisible(true);
-            }
+            overlay.setWindowVisible(visibleCheck.isSelected());
             
             // Update overlay settings just in case
             overlay.setWindowTransparency(opacitySlider.getValue());
             
             // Connect to Kick (only if channelId is provided)
-            if (channelId != null && !channelId.isEmpty()) {
-                wsClient = new KickWebSocketClient(channelId, overlay, soundCheck, authTokenField.getText().trim());
+            if (connectionInfo != null) {
+                wsClient = new KickWebSocketClient(connectionInfo.channelName, connectionInfo.chatroomId,
+                    connectionInfo.websocketUrl, connectionInfo.clientId, overlay, soundCheck,
+                    connectionInfo.authToken);
                 wsClient.connect();
             }
             
@@ -318,7 +334,7 @@ class ControlPanel extends JFrame {
             tiktokField.setEnabled(false);
             
             StringBuilder status = new StringBuilder("Connected: ");
-            boolean hasKick = channelId != null && !channelId.isEmpty();
+            boolean hasKick = connectionInfo != null;
             boolean hasTikTok = !tiktokField.getText().trim().isEmpty();
             
             if (hasKick) status.append("Kick");
@@ -365,29 +381,172 @@ class ControlPanel extends JFrame {
     }
 
     private String getChatroomId(String username) {
+        HttpURLConnection conn = null;
         try {
-            URL url = new URL("https://kick.com/api/v2/channels/" + username);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            String encodedUsername = java.net.URLEncoder.encode(username, java.nio.charset.StandardCharsets.UTF_8.name());
+            URL url = new URL("https://kick.com/api/v2/channels/" + encodedUsername);
+            conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Accept", "application/json");
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
             
             if (conn.getResponseCode() == 200) {
-                Scanner scanner = new Scanner(conn.getInputStream());
-                String response = scanner.useDelimiter("\\A").next();
-                scanner.close();
+                String response;
+                try (Scanner scanner = new Scanner(conn.getInputStream(), java.nio.charset.StandardCharsets.UTF_8.name())) {
+                    response = scanner.useDelimiter("\\A").hasNext() ? scanner.next() : "";
+                }
                 
                 JsonObject json = JsonParser.parseString(response).getAsJsonObject();
                 if (json.has("chatroom") && json.get("chatroom").isJsonObject()) {
-                    return json.get("chatroom").getAsJsonObject().get("id").getAsString();
+                    JsonObject chatroom = json.getAsJsonObject("chatroom");
+                    if (chatroom.has("id") && !chatroom.get("id").isJsonNull()) {
+                        return chatroom.get("id").getAsString();
+                    }
                 }
             } else {
                 System.out.println("API Request failed: " + conn.getResponseCode());
             }
         } catch (Exception e) {
             System.out.println("Error fetching chatroom ID: " + e.getMessage());
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
         }
         return null;
+    }
+
+    private String getKickWebSocketUrl(String chatroomId, String clientId, String authToken) throws Exception {
+        String endpoint = "https://web.kick.com/api/v1/realtime/channels/" + chatroomId + "/chat/connection";
+        JsonObject client = new JsonObject();
+        client.addProperty("id", clientId);
+        client.addProperty("type", "web");
+
+        JsonObject pusher = new JsonObject();
+        pusher.addProperty("provider", "pusher");
+        JsonObject centrifugo = new JsonObject();
+        centrifugo.addProperty("provider", "centrifugo");
+        JsonArray providers = new JsonArray();
+        providers.add(pusher);
+        providers.add(centrifugo);
+
+        JsonObject capabilities = new JsonObject();
+        capabilities.add("accepted_providers", providers);
+        JsonObject payload = new JsonObject();
+        payload.add("client", client);
+        payload.add("capabilities", capabilities);
+
+        JsonObject response = postKickJson(endpoint, payload.toString(), authToken);
+        JsonObject data = getJsonObject(response.get("data"));
+        JsonArray connections = data != null && data.has("connections") && data.get("connections").isJsonArray()
+            ? data.getAsJsonArray("connections") : null;
+        if (connections != null) {
+            for (com.google.gson.JsonElement element : connections) {
+                JsonObject connection = getJsonObject(element);
+                if (connection == null || !"centrifugo".equalsIgnoreCase(getJsonString(connection, "provider"))) {
+                    continue;
+                }
+                JsonObject credentials = getJsonObject(connection.get("credentials"));
+                String websocketUrl = getJsonString(credentials, "url");
+                if (websocketUrl != null && websocketUrl.startsWith("wss://")) {
+                    return websocketUrl;
+                }
+            }
+        }
+        throw new IOException("Kick did not provide a Centrifugo chat connection for this chatroom.");
+    }
+
+    private JsonObject postKickJson(String endpoint, String requestBody, String authToken) throws Exception {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(endpoint).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Origin", "https://kick.com");
+            conn.setRequestProperty("Referer", "https://kick.com/");
+            conn.setRequestProperty("x-app-platform", "web");
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            if (authToken != null && !authToken.trim().isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + authToken.trim());
+            }
+
+            byte[] body = requestBody.getBytes(StandardCharsets.UTF_8);
+            conn.setFixedLengthStreamingMode(body.length);
+            try (OutputStream output = conn.getOutputStream()) {
+                output.write(body);
+            }
+
+            int status = conn.getResponseCode();
+            InputStream stream = status >= 200 && status < 300 ? conn.getInputStream() : conn.getErrorStream();
+            String responseBody = "";
+            if (stream != null) {
+                try (Scanner scanner = new Scanner(stream, StandardCharsets.UTF_8.name())) {
+                    responseBody = scanner.useDelimiter("\\A").hasNext() ? scanner.next() : "";
+                }
+            }
+            if (status < 200 || status >= 300) {
+                String message = null;
+                try {
+                    JsonObject error = JsonParser.parseString(responseBody).getAsJsonObject();
+                    message = getJsonString(error, "message");
+                } catch (Exception ignored) {
+                    // Avoid surfacing non-JSON proxy or server pages in the UI.
+                }
+                throw new IOException("Kick realtime API returned HTTP " + status +
+                    (message == null || message.trim().isEmpty() ? "" : ": " + message));
+            }
+            return JsonParser.parseString(responseBody).getAsJsonObject();
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    private JsonObject getJsonObject(com.google.gson.JsonElement element) {
+        if (element == null || element.isJsonNull()) {
+            return null;
+        }
+        if (element.isJsonObject()) {
+            return element.getAsJsonObject();
+        }
+        if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+            try {
+                com.google.gson.JsonElement parsed = JsonParser.parseString(element.getAsString());
+                return parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String getJsonString(JsonObject object, String key) {
+        if (object == null || !object.has(key) || object.get(key).isJsonNull() ||
+                !object.get(key).isJsonPrimitive()) {
+            return null;
+        }
+        try {
+            return object.get(key).getAsString();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void showKickSetupError(String channelInput, String detail) {
+        connectBtn.setEnabled(true);
+        statusLabel.setText("Could not connect to Kick");
+        statusLabel.setForeground(Color.RED);
+        JOptionPane.showMessageDialog(ControlPanel.this,
+            "Could not set up Kick chat for '" + channelInput + "'.\n\n" + detail,
+            "Kick Connection Error", JOptionPane.ERROR_MESSAGE);
     }
 
     private void showColorDialog() {

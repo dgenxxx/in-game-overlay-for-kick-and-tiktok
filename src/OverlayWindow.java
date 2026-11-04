@@ -11,13 +11,13 @@ import java.util.List;
 import java.util.concurrent.*;
 
 class OverlayWindow extends JFrame {
+    private static final int AUTO_HIDE_AFTER_CHAT_MS = 30_000;
     private JPanel messagePanel;
     private JPanel viewerPanel;
     private JLabel kickViewerLabel;
     private JLabel tiktokViewerLabel;
     private List<ChatMessage> messages;
     private float opacity = 0.85f;
-    private float backgroundAlpha = 0.9f;
     private SoundPlayer soundPlayer;
     private Map<String, Color> roleColors;
     private boolean animationsEnabled = true;
@@ -27,10 +27,14 @@ class OverlayWindow extends JFrame {
     private List<FadableMessagePanel> activeMessagePanels = new CopyOnWriteArrayList<>();
     private int fadeTimeSeconds = 30;
     private javax.swing.Timer fadeTimer;
+    private javax.swing.Timer autoHideTimer;
     private ConfigManager config;
     private boolean locked = false;
+    private boolean windowVisibilityEnabled = true;
     private boolean borderVisible = true;
-    private boolean autoHideWhenEmpty = false;
+    private boolean autoHideWhenEmpty = true;
+    private volatile long lastChatActivityAt;
+    private float backgroundAlpha = 0.15f; // Very transparent background so main window is see-through
     
     // Viewer tracking with timestamps
     private ConcurrentHashMap<String, Long> kickViewers = new ConcurrentHashMap<>();
@@ -57,6 +61,9 @@ class OverlayWindow extends JFrame {
         
         fadeTimer = new javax.swing.Timer(50, e -> updateFades());
         fadeTimer.start();
+
+        autoHideTimer = new javax.swing.Timer(AUTO_HIDE_AFTER_CHAT_MS, e -> applyWindowVisibility());
+        autoHideTimer.setRepeats(false);
         
         // Start viewer cleanup timer (runs every 10 seconds for more frequent updates)
         viewerCleanupTimer = new javax.swing.Timer(10000, e -> cleanupInactiveViewers());
@@ -77,7 +84,7 @@ class OverlayWindow extends JFrame {
         // Load saved bounds
         int x = config.getInt("windowX", -1);
         int y = config.getInt("windowY", -1);
-        int w = config.getInt("windowW", 450);
+        int w = config.getInt("windowW", 850);
         int h = config.getInt("windowH", 600);
         
         if (x != -1 && y != -1) {
@@ -324,9 +331,19 @@ class OverlayWindow extends JFrame {
         toggleClickThrough(locked);
     }
     
+    public void setWindowVisible(boolean visible) {
+        this.windowVisibilityEnabled = visible;
+        if (visible) {
+            autoHideTimer.stop();
+            setVisible(true);
+        } else {
+            applyWindowVisibility();
+        }
+        repaint();
+    }
+    
     public void setBorderVisible(boolean visible) {
-        // Keep border always visible (or controlled independently if needed), 
-        // but toggle auto-hide functionality for the window itself.
+        this.borderVisible = visible;
         this.autoHideWhenEmpty = !visible;
         if (autoHideWhenEmpty) {
             setVisible(activeMessagePanels.isEmpty() ? false : true);
@@ -334,6 +351,25 @@ class OverlayWindow extends JFrame {
             setVisible(true);
         }
         repaint();
+    }
+
+    private void applyWindowVisibility() {
+        if (windowVisibilityEnabled) {
+            autoHideTimer.stop();
+            setVisible(true);
+            return;
+        }
+
+        long remaining = AUTO_HIDE_AFTER_CHAT_MS - (System.currentTimeMillis() - lastChatActivityAt);
+        if (lastChatActivityAt == 0 || remaining <= 0) {
+            autoHideTimer.stop();
+            setVisible(false);
+            return;
+        }
+
+        setVisible(true);
+        autoHideTimer.setInitialDelay((int) remaining);
+        autoHideTimer.restart();
     }
     
     private void toggleClickThrough(final boolean enable) {
@@ -380,9 +416,9 @@ class OverlayWindow extends JFrame {
         System.out.println("OverlayWindow: Total messages before add: " + messages.size());
         
         messages.add(msg);
-        
-        if (autoHideWhenEmpty && !isVisible()) {
-            setVisible(true);
+        if (msg != null && !"System".equalsIgnoreCase(msg.platform)) {
+            lastChatActivityAt = System.currentTimeMillis();
+            SwingUtilities.invokeLater(this::applyWindowVisibility);
         }
 
         if (messages.size() > 20) {
@@ -448,6 +484,7 @@ class OverlayWindow extends JFrame {
     
     private void rebuildAllMessages() {
         System.out.println("OverlayWindow: EDT - Rebuilding all messages");
+        activeMessagePanels.clear();
         messagePanel.removeAll();
         
         GridBagConstraints gbc = new GridBagConstraints();
@@ -555,7 +592,6 @@ class OverlayWindow extends JFrame {
     public void setWindowTransparency(int value) {
         // Controls background opacity only. 100 = Fully Opaque Background, 0 = Fully Transparent Background.
         this.backgroundAlpha = value / 100.0f;
-        setOpacity(1.0f); // Ensure window contents remain visible
         repaint();
     }
 
@@ -587,9 +623,6 @@ class OverlayWindow extends JFrame {
         if (changed) {
             messagePanel.revalidate();
             messagePanel.repaint();
-            if (autoHideWhenEmpty && activeMessagePanels.isEmpty()) {
-                setVisible(false);
-            }
         }
     }
     
@@ -629,6 +662,7 @@ class OverlayWindow extends JFrame {
     
     public void clearMessages() {
         messages.clear();
+        activeMessagePanels.clear();
         messagePanel.removeAll();
         messagePanel.revalidate();
         messagePanel.repaint();
@@ -846,7 +880,7 @@ class OverlayWindow extends JFrame {
             headerPath.lineTo(w, headerHeight/2);
             
             // Draw Header Background
-            g2d.setColor(new Color(30, 30, 30));
+            g2d.setColor(new Color(30, 30, 30, (int)(backgroundAlpha * 255)));
             g2d.fill(headerPath);
             
             // Always draw Green Border/Glow and "CHAT" text
